@@ -5,71 +5,87 @@ from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy_serializer import SerializerMixin
 
 convention = {
-  "ix": "ix_%(column_0_label)s",
-  "uq": "uq_%(table_name)s_%(column_0_name)s",
-  "ck": "ck_%(table_name)s_%(constraint_name)s",
-  "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-  "pk": "pk_%(table_name)s"
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s"
 }
 
 metadata = MetaData(naming_convention=convention)
 
 db = SQLAlchemy(metadata=metadata)
 
+
 class Activity(db.Model, SerializerMixin):
     __tablename__ = 'activities'
-
-    serialize_rules = ('-campers.activities', '-signups.activity')
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String)
     difficulty = db.Column(db.Integer)
 
-    signups = db.relationship('Signup', backref='activity')
-    campers = association_proxy('signups', 'camper',
-        creator=lambda cmp: Signup(camper=cmp))
+    signups = db.relationship(
+        "Signup", cascade="all,delete", backref="activity")
+    serialize_rules = ("-signups.activity",)
 
-class Signup(db.Model, SerializerMixin):
-    __tablename__ = 'signups'
+    def __repr__(self):
+        return f'<Activity {self.id}: {self.name}>'
 
-    serialize_rules = ('-activity.signups', '-camper.signups')
-
-    id = db.Column(db.Integer, primary_key=True)
-    time=  db.Column(db.Integer)
-
-    camper_id = db.Column(db.Integer, db.ForeignKey('campers.id'))
-    activity_id = db.Column(db.Integer, db.ForeignKey('activities.id'))
-
-    @validates('time')
-    def validate_time(self, key, time):
-        if 0 <= time <= 23:
-            return time
-        raise ValueError('Time must be integer between 0 and 23.')
 
 class Camper(db.Model, SerializerMixin):
     __tablename__ = 'campers'
 
-    serialize_rules = ('-activities.campers', '-signups.camper')
-
     id = db.Column(db.Integer, primary_key=True)
-
     name = db.Column(db.String, nullable=False)
     age = db.Column(db.Integer)
 
-    signups = db.relationship('Signup', backref='camper')
-    activities = association_proxy('signups', 'activity',
-        creator=lambda act: Signup(activity=act))
-    
+    signups = db.relationship("Signup", backref="camper")
+
+    activities = association_proxy("signups", "activity")
+
+    serialize_rules = ("-signups.camper",)
+
     @validates('name')
     def validate_name(self, key, name):
-        if name:
-            return name
-        raise ValueError('Camper must have name.')
+        print('Inside the name validation')
+        if not name or len(name) < 1:
+            raise ValueError("Name must exist")
+
+        return name
 
     @validates('age')
     def validate_age(self, key, age):
-        if 8 <= age <= 18:
-            return age
-        raise ValueError('Camper must be between 8 and 18 years old.')
+        print('Inside the age validation')
+        if not 8 <= age <= 18:
+            print('Invalid!!')
+            raise ValueError("Age must be 8 to 18")
 
-# add any models you may need. 
+        return age
+
+    def __repr__(self):
+        return f'<Camper {self.id}: {self.name}>'
+
+
+class Signup(db.Model, SerializerMixin):
+    __tablename__ = 'signups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    time = db.Column(db.Integer)
+
+    camper_id = db.Column(db.Integer, db.ForeignKey("campers.id"))
+    activity_id = db.Column(db.Integer, db.ForeignKey("activities.id"))
+
+    serialize_rules = ("-camper.signups", "-activity.signups")
+
+    @validates('time')
+    def validate_time(self, key, time):
+
+        if not 0 <= time <= 23:
+            raise ValueError("Time must be within limits")
+        return time
+
+    def __repr__(self):
+        return f'<Signup {self.id}>'
+
+
+# add any models you may need.

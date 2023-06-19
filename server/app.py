@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
-import os
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DATABASE = os.environ.get("DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'instance/app.db')}")
-
-from flask import Flask, request
+from models import db, Activity, Camper, Signup
+from flask_restful import Api, Resource
 from flask_migrate import Migrate
+from flask import Flask, make_response, jsonify, request
+import os
 
-from models import db, Activity, Signup, Camper
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+DATABASE = os.environ.get(
+    "DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}")
+
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE
@@ -18,61 +20,122 @@ migrate = Migrate(app, db)
 
 db.init_app(app)
 
+api = Api(app)
+
+
 @app.route('/')
 def home():
     return ''
 
-@app.route('/campers', methods=['GET', 'POST'])
-def campers():
-    if request.method == 'GET':
-        return [camper.to_dict(rules=('-activities', '-signups')) for camper in Camper.query.all()]
-    elif request.method == 'POST':
-        fields = request.get_json()
+
+class Campers(Resource):
+
+    def get(self):
+        campers = [camper.to_dict(rules=('-signups',))
+                   for camper in Camper.query.all()]
+
+        return make_response(campers, 200)
+
+    def post(self):
+
+        # request = request.get_json()
         try:
-            camper = Camper(
-                name=fields.get('name'),
-                age=fields.get('age')
+            new_camper = Camper(
+                name=request.json['name'],
+                age=request.json['age']
             )
+            db.session.add(new_camper)
+            db.session.commit()
+
+            return new_camper.to_dict(rules=('-signups',)), 201
+        except ValueError:
+            return make_response({"errors": ["validation errors"]}, 400)
+
+
+api.add_resource(Campers, "/campers")
+
+
+class CampersById(Resource):
+
+    def get(self, id):
+        camper = Camper.query.filter(Camper.id == id).one_or_none()
+
+        if camper is None:
+            return make_response({'error': 'Camper not found'}, 404)
+
+        return make_response(camper.to_dict(), 200)
+
+    def patch(self, id):
+        camper = Camper.query.filter(Camper.id == id).one_or_none()
+
+        if camper is None:
+            return {'error': 'Camper not found'}, 404
+
+        fields = request.get_json()
+
+        try:
+            setattr(camper, 'name', fields['name'])
+            setattr(camper, 'age', fields['age'])
             db.session.add(camper)
             db.session.commit()
-            return camper.to_dict()
+
+            return camper.to_dict(rules=('-signups',)), 202
+
         except ValueError:
-            return {'error': '400: Validation error'}, 400
+            return make_response({"errors": ["validation errors"]}, 400)
 
-@app.route('/campers/<int:id>', methods=['GET'])
-def camper_by_id(id):
-    camper = Camper.query.filter(Camper.id == id).one_or_none()
-    if camper:
-        return camper.to_dict()
-    return {'error': '404: Camper not found'}, 404
 
-@app.route('/activities', methods=['GET'])
-def activities():
-    return [activity.to_dict(rules=('-campers', '-signups')) for activity in Activity.query.all()]
+api.add_resource(CampersById, "/campers/<int:id>")
 
-@app.route('/activities/<int:id>', methods=['DELETE'])
-def activity_by_id(id):
-    activity = Activity.query.filter(Activity.id == id).one_or_none()
-    if activity:
-        db.session.delete(activity)
-        db.session.commit()
-        return {}, 204
-    return {'error': '404: Activity not found'}, 404
 
-@app.route('/signups', methods=['POST'])
-def signups():
-    fields = request.get_json()
-    try:
-        signup = Signup(
-            time=fields.get('time'),
-            camper_id=fields.get('camper_id'),
-            activity_id=fields.get('activity_id')
-        )
-        db.session.add(signup)
-        db.session.commit()
-        return signup.to_dict()
-    except ValueError:
-        return {'error': '400: Validation error'}, 400
+class Activities(Resource):
+
+    def get(self):
+        activities = [activity.to_dict(rules=('-signups',))
+                      for activity in Activity.query.all()]
+        return activities, 200
+
+
+api.add_resource(Activities, "/activities")
+
+
+class ActivititesById(Resource):
+
+    def delete(self, id):
+        activity = Activity.query.filter_by(id=id).one_or_none()
+
+        if activity:
+            db.session.delete(activity)
+            db.session.commit()
+
+            return make_response({}, 204)
+
+        return make_response({"error": "Activity not found"}, 404)
+
+
+api.add_resource(ActivititesById, "/activities/<int:id>")
+
+
+class Signups(Resource):
+
+    def post(self):
+        try:
+            signup = Signup(
+                time=request.json["time"],
+                camper_id=request.json["camper_id"],
+                activity_id=request.json["activity_id"]
+            )
+
+            db.session.add(signup)
+            db.session.commit()
+
+            return make_response(signup.to_dict(), 201)
+
+        except ValueError:
+            return make_response({"errors": ["validation errors"]}, 400)
+
+
+api.add_resource(Signups, "/signups")
 
 if __name__ == '__main__':
     app.run(port=5555, debug=True)

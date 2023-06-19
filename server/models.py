@@ -41,8 +41,6 @@ class Camper(db.Model, SerializerMixin):
 
     signups = db.relationship("Signup", backref="camper")
 
-    activities = association_proxy("signups", "activity")
-
     serialize_rules = ("-signups.camper",)
 
     @validates('name')

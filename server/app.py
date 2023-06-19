@@ -5,9 +5,10 @@ from flask_restful import Api, Resource
 from flask_migrate import Migrate
 from flask import Flask, make_response, jsonify, request
 import os
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATABASE = os.environ.get(
-    "DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'instance/app.db')}")
+    "DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}")
 
 
 app = Flask(__name__)
@@ -30,14 +31,10 @@ def home():
 class Campers(Resource):
 
     def get(self):
-        try:
-            campers = [camper.to_dict(only=("id", "name", "age"))
-                       for camper in Camper.query.all()]
+        campers = [camper.to_dict(rules=('-signups',))
+                   for camper in Camper.query.all()]
 
-            return campers, 200
-
-        except:
-            return {"error": "Bad request"}, 400
+        return make_response(campers, 200)
 
     def post(self):
 
@@ -50,7 +47,7 @@ class Campers(Resource):
             db.session.add(new_camper)
             db.session.commit()
 
-            return new_camper.to_dict(only=("id", "name", "age")), 201
+            return new_camper.to_dict(rules=('-signups',)), 201
         except ValueError:
             return make_response({"errors": ["validation errors"]}, 400)
 
@@ -61,28 +58,24 @@ api.add_resource(Campers, "/campers")
 class CampersById(Resource):
 
     def get(self, id):
-        # pass
-        try:
-            camper = Camper.query.filter(Camper.id == id).first().to_dict(
-                only=("id", "name", "age", "activities"))
+        camper = Camper.query.filter(Camper.id == id).one_or_none()
 
-            # print(camper)
-            return camper, 200
-        except:
-            return {"error": "404: Camper not found"}, 404
+        if camper is None:
+            return make_response({'error': 'Camper not found'}, 404)
+
+        return make_response(camper.to_dict(), 200)
 
     def patch(self, id):
         camper = Camper.query.filter(Camper.id == id).one_or_none()
 
-        if camper == None:
+        if camper is None:
             return {'error': 'Camper not found'}, 404
 
         fields = request.get_json()
 
         try:
-            for key in fields:
-                setattr(camper, key, fields[key])
-
+            setattr(camper, 'name', fields['name'])
+            setattr(camper, 'age', fields['age'])
             db.session.add(camper)
             db.session.commit()
 
@@ -98,14 +91,9 @@ api.add_resource(CampersById, "/campers/<int:id>")
 class Activities(Resource):
 
     def get(self):
-        try:
-            activities = [activity.to_dict()
-                          for activity in Activity.query.all()]
-            return activities, 200
-        except:
-            return {
-                'error': 'Bad request'
-            }, 400
+        activities = [activity.to_dict(rules=('-signups',))
+                      for activity in Activity.query.all()]
+        return activities, 200
 
 
 api.add_resource(Activities, "/activities")
@@ -114,15 +102,15 @@ api.add_resource(Activities, "/activities")
 class ActivititesById(Resource):
 
     def delete(self, id):
-        try:
-            activity = Activity.query.filter_by(id=id).first()
+        activity = Activity.query.filter_by(id=id).one_or_none()
 
+        if activity:
             db.session.delete(activity)
             db.session.commit()
 
-            return {}, 204
-        except:
-            return {"error": "404: Activity not found"}, 404
+            return make_response({}, 204)
+
+        return make_response({"error": "Activity not found"}, 404)
 
 
 api.add_resource(ActivititesById, "/activities/<int:id>")
@@ -141,7 +129,7 @@ class Signups(Resource):
             db.session.add(signup)
             db.session.commit()
 
-            return signup.activity.to_dict(), 201
+            return make_response(signup.to_dict(), 201)
 
         except ValueError:
             return make_response({"errors": ["validation errors"]}, 400)

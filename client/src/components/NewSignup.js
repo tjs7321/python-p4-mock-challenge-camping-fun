@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-function NewSignup({ camperId, onAddActivity }) {
+function NewSignup({ camperId, onAddSignup }) {
   const [time, setTime] = useState("");
   const [activityId, setActivityId] = useState("");
   const [activities, setActivities] = useState([]);
@@ -27,11 +27,11 @@ function NewSignup({ camperId, onAddActivity }) {
       body: JSON.stringify(formData),
     }).then((r) => {
       if (r.ok) {
-        r.json().then((activity) => {
+        r.json().then((signup) => {
           setTime("");
           setActivityId("");
           setErrors([]);
-          onAddActivity(activity);
+          onAddSignup(signup);
         });
       } else {
         r.json().then((err) => setErrors(err.errors));

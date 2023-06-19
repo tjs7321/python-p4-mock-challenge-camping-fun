@@ -1,10 +1,7 @@
 from models import Activity, Signup, Camper
 from app import app, db
 from faker import Faker
-from flask import request
-import json
-import os
-os.environ['DB_URI'] = "sqlite:///:memory:"
+from random import randint
 
 
 class TestApp:
@@ -14,14 +11,15 @@ class TestApp:
         '''retrieves campers with GET requests to /campers.'''
 
         with app.app_context():
-
-            db.create_all()
-
-            clark = Camper(name="Clark Kent", age=9)
-            db.session.add(clark)
+            camper1 = Camper(name=Faker().name(), age=9)
+            camper2 = Camper(name=Faker().name(), age=12)
+            db.session.add_all([camper1, camper2])
             db.session.commit()
 
-            response = app.test_client().get('/campers').json
+            response = app.test_client().get('/campers')
+            assert response.status_code == 200
+            assert response.content_type == 'application/json'
+            response = response.json
             campers = Camper.query.all()
             assert [camper['id'] for camper in response] == [
                 camper.id for camper in campers]
@@ -29,18 +27,29 @@ class TestApp:
                 camper.name for camper in campers]
             assert [camper['age'] for camper in response] == [
                 camper.age for camper in campers]
+            for restaurant in response:
+                assert 'signups' not in restaurant
 
     def test_gets_camper_by_id(self):
         '''retrieves one camper using its ID with GET request to /campers/<int:id>.'''
 
         with app.app_context():
-            bruce = Camper(name="Bruce Wayne", age=11)
-            db.session.add(bruce)
+            fake = Faker()
+            camper = Camper(name=fake.name(), age=11)
+            activity = Activity(name=fake.sentence(), difficulty="4")
+
+            db.session.add_all([camper, activity])
             db.session.commit()
 
-            response = app.test_client().get(f'/campers/{bruce.id}').json
-            assert response['name'] == bruce.name
-            assert response['age'] == bruce.age
+            signup = Signup(camper_id=camper.id,
+                            activity_id=activity.id, time=12)
+            db.session.add(signup)
+            db.session.commit()
+
+            response = app.test_client().get(f'/campers/{camper.id}').json
+            assert response['name'] == camper.name
+            assert response['age'] == camper.age
+            assert response['signups']
 
     def test_returns_404_if_no_camper(self):
         '''returns an error message and 404 status code when a camper is searched by a non-existent ID.'''
@@ -48,7 +57,7 @@ class TestApp:
         with app.app_context():
 
             response = app.test_client().get('/campers/0')
-            assert response.json.get('error')
+            assert response.json.get('error') == "Camper not found"
             assert response.status_code == 404
 
     def test_creates_camper(self):
@@ -56,20 +65,21 @@ class TestApp:
 
         with app.app_context():
             name = Faker().name()
+            age = randint(8, 18)
             response = app.test_client().post(
                 '/campers',
                 json={
                     'name': name,
-                    'age': 15
+                    'age': age
                 }
             ).json
 
             assert response['id']
             assert response['name'] == name
-            assert response['age'] == 15
+            assert response['age'] == age
 
             camper = Camper.query.filter(
-                Camper.name == name, Camper.age == 15).one_or_none()
+                Camper.name == name, Camper.age == age).one_or_none()
             assert camper
 
     def test_400_for_camper_validation_error(self):
@@ -80,7 +90,7 @@ class TestApp:
             response = app.test_client().post(
                 '/campers',
                 json={
-                    'name': 'Tony Stark',
+                    'name': Faker().name(),
                     'age': 19
                 }
             )
@@ -177,8 +187,12 @@ class TestApp:
         '''retrieves activities with GET request to /activities'''
 
         with app.app_context():
-            activity = Activity(name="Swimming", difficulty="4")
-            db.session.add(activity)
+            fake = Faker()
+            activity1 = Activity(
+                name=fake.sentence(), difficulty=randint(1, 10))
+            activity2 = Activity(
+                name=fake.sentence(), difficulty=randint(1, 10))
+            db.session.add_all([activity1, activity2])
             db.session.commit()
 
             response = app.test_client().get('/activities').json
@@ -195,7 +209,8 @@ class TestApp:
         '''deletes activities with DELETE request to /activities/<int:id>.'''
 
         with app.app_context():
-            activity = Activity(name="Fire Building", difficulty="5")
+            activity = Activity(name=Faker().sentence(),
+                                difficulty=randint(1, 10))
             db.session.add(activity)
             db.session.commit()
 
@@ -212,52 +227,61 @@ class TestApp:
 
         with app.app_context():
             response = app.test_client().delete('/activities/0')
-            assert response.json.get('error')
+            assert response.json.get('error') == 'Activity not found'
             assert response.status_code == 404
 
     def test_creates_signups(self):
         '''creates signups with POST request to /signups'''
 
         with app.app_context():
-            peter = Camper(name="Peter Parker", age=18)
-            canoeing = Activity(name="Canoeing", difficulty=1)
-            db.session.add_all([peter, canoeing])
+            fake = Faker()
+            camper = Camper(name=fake.name(), age=randint(8, 18))
+            activity = Activity(name=fake.sentence(),
+                                difficulty=randint(1, 10))
+            db.session.add_all([camper, activity])
             db.session.commit()
 
+            time = randint(0, 23)
             response = app.test_client().post(
                 '/signups',
                 json={
-                    'time': 12,
-                    'camper_id': peter.id,
-                    'activity_id': canoeing.id
+                    'time': time,
+                    'camper_id': camper.id,
+                    'activity_id': activity.id
                 }
             ).json
 
             assert response['id']
-            assert response['difficulty'] == 1
-            assert response['name'] == 'Canoeing'
+            assert response['camper_id'] == camper.id
+            assert response['activity_id'] == activity.id
+            assert response['activity']
+            assert response['camper']
 
             signup = Signup.query.filter(
-                Signup.id == response['id']).one_or_none()
-            assert signup
+                Signup.activity_id == activity.id, Signup.camper_id == camper.id).one_or_none()
+
+            assert signup.time == time
 
     def test_400_for_signup_validation_error(self):
         '''returns a 400 status code and error message if a POST request to /signups fails.'''
 
         with app.app_context():
-            peter = Camper(name="Peter Parker", age=18)
-            canoeing = Activity(name="Canoeing", difficulty=1)
-            db.session.add_all([peter, canoeing])
+            fake = Faker()
+            camper = Camper(name=fake.name(), age=randint(8, 18))
+            activity = Activity(name=fake.sentence(),
+                                difficulty=randint(1, 10))
+
+            db.session.add_all([camper, activity])
             db.session.commit()
 
             response = app.test_client().post(
                 '/signups',
                 json={
                     'time': 24,
-                    'camper_id': peter.id,
-                    'activity_id': canoeing.id
+                    'camper_id': camper.id,
+                    'activity_id': activity.id
                 }
             )
 
             assert response.status_code == 400
-            assert response.json['errors']
+            assert response.json['errors'] == ["validation errors"]

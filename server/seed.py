@@ -22,7 +22,7 @@ def create_activities():
 
 def create_campers():
     campers = []
-    for _ in range(20):
+    for _ in range(5):
         c = Camper(
             name=fake.name(),
             age=rc(range(8, 19))
@@ -34,7 +34,7 @@ def create_campers():
 
 def create_signups(activities, campers):
     signups = []
-    for _ in range(100):
+    for _ in range(20):
         s = Signup(
             time=rc(range(24)),
             camper_id=rc([camper.id for camper in campers]),
